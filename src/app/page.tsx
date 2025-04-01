@@ -53,8 +53,8 @@ export default function Home() {
             }
 
             setAnalysis(data.analysis);
-        } catch (err: any) {
-            setError(err.message || 'Terjadi kesalahan yang tidak diketahui');
+        } catch (err: unknown) {
+            setError(err instanceof Error ? err.message : 'Terjadi kesalahan yang tidak diketahui');
             setProgressValue(0);
             if (progressInterval) clearInterval(progressInterval);
         } finally {

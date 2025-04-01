@@ -41,17 +41,17 @@ export async function POST(request: NextRequest) {
           return NextResponse.json({ error: 'Transkrip tidak ditemukan untuk video ini.' }, { status: 404 });
       }
       transcriptText = transcript.map(item => item.text).join(' ');
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Kesalahan saat mengambil transkrip:', error);
       let errorMessage = 'Gagal mengambil transkrip.';
       let statusCode = 500;
-      if (error.message?.includes('disabled subtitles')) {
+      if (error instanceof Error && error.message?.includes('disabled subtitles')) {
           errorMessage = 'Transkrip (subtitles) dinonaktifkan untuk video ini.';
           statusCode = 404;
-      } else if (error.message?.includes('No transcripts found')) {
+      } else if (error instanceof Error && error.message?.includes('No transcripts found')) {
            errorMessage = 'Tidak ada transkrip yang ditemukan untuk video ini.';
            statusCode = 404;
-      } else if (error.message?.includes('invalid video ID')) {
+      } else if (error instanceof Error && error.message?.includes('invalid video ID')) {
            errorMessage = 'URL YouTube tidak valid atau video tidak ditemukan.';
            statusCode = 400;
       }
@@ -85,18 +85,18 @@ export async function POST(request: NextRequest) {
       console.log('Analisis AI berhasil diterima.');
       return NextResponse.json({ analysis: analysisResult });
 
-    } catch (aiError: any) {
+    } catch (aiError: unknown) {
         console.error('Kesalahan saat memanggil API DeepSeek:', aiError);
          let aiErrorMessage = 'Gagal menganalisis transkrip dengan AI.';
-        if (aiError.response && aiError.response.data && aiError.response.data.error) {
+        if (aiError instanceof Error && 'response' in aiError && aiError.response && aiError.response instanceof Object && 'data' in aiError.response && aiError.response.data && aiError.response.data instanceof Object && 'error' in aiError.response.data && aiError.response.data.error && aiError.response.data.error instanceof Object && 'message' in aiError.response.data.error && aiError.response.data.error.message) {
             aiErrorMessage = `Error AI: ${aiError.response.data.error.message || 'Unknown AI Error'}`;
-        } else if (aiError.message) {
+        } else if (aiError instanceof Error && aiError.message) {
              aiErrorMessage = `Error AI: ${aiError.message}`;
         }
         return NextResponse.json({ error: aiErrorMessage }, { status: 500 });
     }
 
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Kesalahan tak terduga di API route:', error);
     return NextResponse.json({ error: 'Terjadi kesalahan internal server.' }, { status: 500 });
   }
