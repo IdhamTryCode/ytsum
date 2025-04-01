@@ -165,7 +165,7 @@ export default function Home() {
                                          prose-li:text-neutral-300 
                                          text-justify">
                                 <ReactMarkdown>{analysis}</ReactMarkdown>
-                            </div>
+        </div>
                             <div className="text-center">
                                 <Button
                                     onClick={handleResetPage}

@@ -14,7 +14,31 @@ if (process.env.DEEPSEEK_API_KEY) {
 const deepseek = new OpenAI({
   apiKey: process.env.DEEPSEEK_API_KEY, // Baca kunci API dari env
   baseURL: process.env.DEEPSEEK_API_BASE_URL, // Baca base URL dari env
+  timeout: 30000, // 30 detik timeout
 });
+
+// Fungsi untuk memvalidasi dan membersihkan URL YouTube
+function validateAndCleanYouTubeUrl(url: string): string | null {
+  try {
+    const urlObj = new URL(url);
+    // Validasi domain
+    if (!['youtube.com', 'www.youtube.com', 'youtu.be'].includes(urlObj.hostname)) {
+      return null;
+    }
+    // Dapatkan video ID
+    let videoId = '';
+    if (urlObj.hostname === 'youtu.be') {
+      videoId = urlObj.pathname.slice(1);
+    } else {
+      videoId = urlObj.searchParams.get('v') || '';
+    }
+    if (!videoId) return null;
+    // Kembalikan URL yang sudah dibersihkan
+    return `https://www.youtube.com/watch?v=${videoId}`;
+  } catch {
+    return null;
+  }
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -25,36 +49,53 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'URL tidak valid atau tidak ditemukan' }, { status: 400 });
     }
 
-    // Validasi URL YouTube sederhana
-    // Regex ini bisa diperbaiki untuk cakupan yang lebih luas jika diperlukan
-    const youtubeRegex = /^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.?be)\/.+$/;
-    if (!youtubeRegex.test(url)) {
-        return NextResponse.json({ error: 'Format URL YouTube tidak valid' }, { status: 400 });
+    // Validasi dan bersihkan URL
+    const cleanUrl = validateAndCleanYouTubeUrl(url);
+    if (!cleanUrl) {
+      return NextResponse.json({ error: 'Format URL YouTube tidak valid' }, { status: 400 });
     }
 
-    console.log(`Mencoba mengambil transkrip untuk: ${url}`); // Logging URL
+    console.log(`Mencoba mengambil transkrip untuk: ${cleanUrl}`);
 
     let transcriptText = '';
     try {
-      const transcript = await YoutubeTranscript.fetchTranscript(url);
+      // Tambahkan timeout untuk fetch
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Timeout mengambil transkrip')), 15000)
+      );
+      const transcriptPromise = YoutubeTranscript.fetchTranscript(cleanUrl);
+      
+      const result = await Promise.race([transcriptPromise, timeoutPromise]);
+      const transcript = result as Array<{ text: string }>;
+      
       if (!transcript || transcript.length === 0) {
-          return NextResponse.json({ error: 'Transkrip tidak ditemukan untuk video ini.' }, { status: 404 });
+        return NextResponse.json({ error: 'Transkrip tidak ditemukan untuk video ini.' }, { status: 404 });
       }
-      transcriptText = transcript.map(item => item.text).join(' ');
+      transcriptText = transcript.map((item: { text: string }) => item.text).join(' ');
     } catch (error: unknown) {
       console.error('Kesalahan saat mengambil transkrip:', error);
       let errorMessage = 'Gagal mengambil transkrip.';
       let statusCode = 500;
-      if (error instanceof Error && error.message?.includes('disabled subtitles')) {
+
+      if (error instanceof Error) {
+        if (error.message?.includes('disabled subtitles')) {
           errorMessage = 'Transkrip (subtitles) dinonaktifkan untuk video ini.';
           statusCode = 404;
-      } else if (error instanceof Error && error.message?.includes('No transcripts found')) {
-           errorMessage = 'Tidak ada transkrip yang ditemukan untuk video ini.';
-           statusCode = 404;
-      } else if (error instanceof Error && error.message?.includes('invalid video ID')) {
-           errorMessage = 'URL YouTube tidak valid atau video tidak ditemukan.';
-           statusCode = 400;
+        } else if (error.message?.includes('No transcripts found')) {
+          errorMessage = 'Tidak ada transkrip yang ditemukan untuk video ini.';
+          statusCode = 404;
+        } else if (error.message?.includes('invalid video ID')) {
+          errorMessage = 'URL YouTube tidak valid atau video tidak ditemukan.';
+          statusCode = 400;
+        } else if (error.message?.includes('Timeout')) {
+          errorMessage = 'Waktu mengambil transkrip habis. Silakan coba lagi.';
+          statusCode = 504;
+        } else if (error.message?.includes('ENOTFOUND')) {
+          errorMessage = 'Tidak dapat terhubung ke YouTube. Periksa koneksi internet Anda.';
+          statusCode = 503;
+        }
       }
+      
       return NextResponse.json({ error: errorMessage }, { status: statusCode });
     }
 
